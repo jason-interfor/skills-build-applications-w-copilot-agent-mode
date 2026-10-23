@@ -64,8 +64,37 @@ export async function listTeams() {
   return Team.find().lean();
 }
 
-export async function createTeam(_input: unknown) {
-  throw Object.assign(new Error('Team validation is not implemented yet'), { status: 501 });
+export async function createTeam(input: unknown) {
+  if (!input || typeof input !== 'object') {
+    throw Object.assign(new Error('Team payload is required'), { status: 400 });
+  }
+
+  const payload = input as Record<string, unknown>;
+  const { name, mascot, members } = payload;
+
+  if (typeof name !== 'string' || !name.trim()) {
+    throw Object.assign(new Error('Team name is required'), { status: 400 });
+  }
+
+  if (typeof mascot !== 'string' || !mascot.trim()) {
+    throw Object.assign(new Error('Team mascot is required'), { status: 400 });
+  }
+
+  const normalizedMembers = Array.isArray(members) ? members : [];
+  const validMembers = normalizedMembers.map((memberId) => {
+    if (typeof memberId !== 'string' || !mongoose.isValidObjectId(memberId)) {
+      throw Object.assign(new Error('Team members must be valid Mongo ObjectIds'), { status: 400 });
+    }
+    return new mongoose.Types.ObjectId(memberId);
+  });
+
+  const team = await Team.create({
+    name: name.trim(),
+    mascot: mascot.trim(),
+    members: validMembers,
+  });
+
+  return team.toObject();
 }
 
 export async function getLeaderboard() {
