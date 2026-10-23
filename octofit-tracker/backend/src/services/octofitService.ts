@@ -98,11 +98,68 @@ export async function createTeam(input: unknown) {
 }
 
 export async function getLeaderboard() {
-  return [];
+  const totals = await Activity.aggregate([
+    { $group: { _id: '$team', totalPoints: { $sum: '$points' } } },
+    { $sort: { totalPoints: -1, _id: 1 } },
+    {
+      $lookup: {
+        from: 'teams',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'team',
+      },
+    },
+    { $unwind: '$team' },
+    { $project: { _id: 0, teamId: '$_id', teamName: '$team.name', totalPoints: 1 } },
+  ]);
+
+  return totals.map((entry, index) => ({
+    teamName: entry.teamName,
+    totalPoints: entry.totalPoints,
+    rank: index + 1,
+  }));
 }
 
-export async function suggestWorkouts(_userEmail: string) {
-  return Workout.find().limit(1).lean();
+export async function suggestWorkouts(userEmail: string) {
+  const email = userEmail.trim().toLowerCase();
+  const user = await User.findOne({ email }).lean();
+
+  if (!user) {
+    throw Object.assign(new Error('User not found'), { status: 404 });
+  }
+
+  const recentActivities = await Activity.find({ user: user._id }).sort({ occurredAt: -1 }).limit(10).lean();
+  const activityTypes = recentActivities.map((activity) => activity.type).filter((type): type is string => Boolean(type));
+  const focusCandidates = new Set<string>();
+
+  if (typeof user.fitnessGoal === 'string' && user.fitnessGoal.trim()) {
+    focusCandidates.add(user.fitnessGoal.trim().toLowerCase());
+  }
+
+  for (const activityType of activityTypes) {
+    focusCandidates.add(activityType.trim().toLowerCase());
+  }
+
+  const workoutQuery = focusCandidates.size > 0 ? { focus: { $in: Array.from(focusCandidates) } } : {};
+  const workouts = await Workout.find(workoutQuery).lean();
+
+  if (workouts.length === 0) {
+    return [];
+  }
+
+  const primaryType = activityTypes[0] ?? user.fitnessGoal ?? 'activity';
+  const primaryFocus = user.fitnessGoal?.trim().toLowerCase() || primaryType.toLowerCase();
+
+  return workouts
+    .map((workout) => ({
+      ...workout,
+      reason: `Based on your ${primaryFocus} goal and recent ${primaryType} activity, this workout fits your current pattern.`,
+    }))
+    .sort((left, right) => {
+      const leftScore = left.focus === primaryFocus ? 1 : 0;
+      const rightScore = right.focus === primaryFocus ? 1 : 0;
+      return rightScore - leftScore;
+    });
 }
 
 export { User };
