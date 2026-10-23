@@ -4,6 +4,7 @@
         "git add": true,
         "git commit": true,
         "git push": true,
-        "npm run test:data": true
+        "npm run test:data": true,
+        "npm run test:api": true
     }
 }
